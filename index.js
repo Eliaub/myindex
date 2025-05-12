@@ -1,9 +1,9 @@
 const game = new Game({
-    width: 500,
+    width: 800,
     height: 500,
     rows: 3,
     cols: 3,
-    imgUrl: 'img/img.jfif',
+    imgUrl: 'img/gt.jpg',
     dom: document.getElementById('game'),
 });
 

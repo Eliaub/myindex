@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>拼图游戏 - 移动端适配</title>
+<style>
+  body {
+    margin: 0;
+    font-family: "微软雅黑", sans-serif;
+    background: #f0f0f0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #container {
+    width: 100%;
+    padding-top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-sizing: border-box;
+  }
+  #game {
+    position: relative;
+    margin-top: 0;
+    border: 1px solid black;
+    background: #ddd;
+    width: 90vw;
+    max-width: 500px;
+    height: 90vw;
+    max-height: 500px;
+    touch-action: manipulation;
+  }
+  #controls {
+    margin-top: 20px;
+    background: white;
+    padding: 15px 20px;
+    border-radius: 6px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.1);
+    width: 90vw;
+    max-width: 520px;
+    box-sizing: border-box;
+  }
+  #controls label {
+    display: inline-block;
+    width: 60px;
+    font-weight: bold;
+    font-size: 16px;
+  }
+  #controls input[type="number"],
+  #controls input[type="text"] {
+    width: calc(100% - 70px);
+    max-width: 200px;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 16px;
+    box-sizing: border-box;
+  }
+  #controls input[type="text"] {
+    width: calc(100% - 70px);
+    max-width: 320px;
+  }
+  #controls button {
+    width: 100%;
+    padding: 12px 0;
+    font-size: 18px;
+    cursor: pointer;
+    border: none;
+    background-color: #007bff;
+    color: white;
+    border-radius: 5px;
+    transition: background-color 0.3s;
+    user-select: none;
+  }
+  #controls button:active {
+    background-color: #0056b3;
+  }
+  #status {
+    margin-top: 15px;
+    font-size: 18px;
+    color: #333;
+    text-align: center;
+    user-select: none;
+  }
+
+  /* 输入框和标签垂直排列，适合移动端 */
+  @media (max-width: 480px) {
+    #controls label, #controls input {
+      display: block;
+      width: 100% !important;
+      max-width: none !important;
+      margin-bottom: 6px;
+    }
+    #controls label {
+      margin-top: 10px;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="game"></div>
+
+  <div id="controls">
+    <label for="rows">行数:</label>
+    <input type="number" id="rows" min="2" max="10" value="3" />
+    <label for="cols">列数:</label>
+    <input type="number" id="cols" min="2" max="10" value="3" />
+    <label for="imgUrl">图片URL:</label>
+    <input type="text" id="imgUrl" value="https://picsum.photos/500" placeholder="请输入图片地址" />
+    <button id="startBtn">开始游戏</button>
+
+    <div id="status">
+      用时: <span id="time">00:00</span> &nbsp;&nbsp; 步数: <span id="steps">0</span>
+    </div>
+  </div>
+</div>
+
+<script>
+function getCorsProxyUrl(url) {
+    if (url.startsWith('https://cors-anywhere.herokuapp.com/') || url.startsWith('https://api.allorigins.win/raw?url=')) {
+        return url;
+    }
+    return 'https://cors-anywhere.herokuapp.com/' + url;
+}
+class Block {
+  constructor(game, r, c) {
+    this.game = game;
+    this.row = r;
+    this.col = c;
+
+    this.left = c * game.blockWidth;
+    this.top = r * game.blockHeight;
+
+    this.targetLeft = this.left;
+    this.targetTop = this.top;
+
+    this.dom = document.createElement('div');
+    this.dom.style.width = game.blockWidth + 'px';
+    this.dom.style.height = game.blockHeight + 'px';
+    this.dom.style.position = 'absolute';
+    this.dom.style.background = `url(${game.imgUrl}) no-repeat -${this.targetLeft}px -${this.targetTop}px / ${game.width}px ${game.height}px`;
+    this.dom.style.border = '1px solid #fff';
+    this.dom.style.boxSizing = 'border-box';
+    this.dom.style.cursor = 'pointer';
+    this.dom.style.transition = '0.3s';
+
+    this.dom.addEventListener('click', () => {
+      if (game.isOver) return;
+
+      const isAdjacent =
+        (this.top === game.hideBlock.top && Math.abs(this.left - game.hideBlock.left) === game.blockWidth) ||
+        (this.left === game.hideBlock.left && Math.abs(this.top - game.hideBlock.top) === game.blockHeight);
+
+      if (!isAdjacent) return;
+
+      game.swap(this, game.hideBlock);
+      game.steps++;
+      game.updateStatus();
+
+      game.checkIsOver();
+    });
+
+    this.updatePosition();
+
+    game.dom.appendChild(this.dom);
+  }
+
+  updatePosition() {
+    this.dom.style.left = this.left + 'px';
+    this.dom.style.top = this.top + 'px';
+  }
+}
+
+class Game {
+  constructor(config) {
+    this.width = config.width;
+    this.height = config.height;
+    this.rows = config.rows;
+    this.cols = config.cols;
+    this.imgUrl = config.imgUrl;
+    this.dom = config.dom;
+
+    this.isOver = false;
+    this.steps = 0;
+    this.timer = null;
+    this.timeCount = 0;
+
+    this.init();
+  }
+
+  initCompute() {
+    this.blockWidth = this.width / this.cols;
+    this.blockHeight = this.height / this.rows;
+    this.blockCount = this.rows * this.cols;
+  }
+
+  initGameDom() {
+    this.dom.innerHTML = '';
+    this.dom.style.width = this.width + 'px';
+    this.dom.style.height = this.height + 'px';
+    this.dom.style.border = '1px solid black';
+    this.dom.style.position = 'relative';
+    this.dom.style.userSelect = 'none';
+  }
+
+  initBlocks() {
+    this.blocks = [];
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        const block = new Block(this, r, c);
+        this.blocks.push(block);
+      }
+    }
+
+    this.hideBlock = this.blocks[this.blockCount - 1];
+    this.hideBlock.dom.style.display = 'none';
+  }
+
+  swap(block1, block2) {
+    [block1.left, block2.left] = [block2.left, block1.left];
+    [block1.top, block2.top] = [block2.top, block1.top];
+
+    block1.updatePosition();
+    block2.updatePosition();
+  }
+
+  checkIsOver() {
+    this.isOver = this.blocks.every(block =>
+      block.left === block.targetLeft && block.top === block.targetTop
+    );
+
+    if (this.isOver) {
+      this.over();
+    }
+  }
+
+  over() {
+    this.hideBlock.dom.style.display = 'block';
+    this.blocks.forEach(block => {
+      block.dom.style.border = 'none';
+    });
+    clearInterval(this.timer);
+    alert(`恭喜你，拼图完成！用时 ${this.formatTime(this.timeCount)}，步数 ${this.steps}`);
+  }
+
+  isOddInversions() {
+    let inversCount = 0;
+    for (let i = 0; i < this.blockCount - 1; i++) {
+      for (let j = i + 1; j < this.blockCount - 1; j++) {
+        const blockI = this.blocks[i];
+        const blockJ = this.blocks[j];
+
+        if (
+          blockI.top > blockJ.top ||
+          (blockI.top === blockJ.top && blockI.left > blockJ.left)
+        ) {
+          inversCount++;
+        }
+      }
+    }
+    return inversCount % 2 !== 0;
+  }
+
+  shuffle() {
+    for (let i = 0; i < this.blocks.length - 1; i++) {
+      const index = Math.floor(Math.random() * (this.blocks.length - 1 - i)) + i;
+      this.swap(this.blocks[i], this.blocks[index]);
+    }
+
+    if (this.isOddInversions()) {
+      this.swap(this.blocks[this.blockCount - 3], this.blocks[this.blockCount - 2]);
+    }
+  }
+
+  startTimer() {
+    this.timeCount = 0;
+    this.updateStatus();
+    if (this.timer) clearInterval(this.timer);
+    this.timer = setInterval(() => {
+      this.timeCount++;
+      this.updateStatus();
+    }, 1000);
+  }
+
+  updateStatus() {
+    document.getElementById('time').textContent = this.formatTime(this.timeCount);
+    document.getElementById('steps').textContent = this.steps;
+  }
+
+  formatTime(seconds) {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  init() {
+    this.isOver = false;
+    this.steps = 0;
+    this.initCompute();
+    this.initGameDom();
+    this.initBlocks();
+    this.shuffle();
+    this.startTimer();
+  }
+}
+
+// 页面元素
+const gameContainer = document.getElementById('game');
+const startBtn = document.getElementById('startBtn');
+const rowsInput = document.getElementById('rows');
+const colsInput = document.getElementById('cols');
+const imgUrlInput = document.getElementById('imgUrl');
+
+let game = null;
+
+startBtn.addEventListener('click', () => {
+  const rows = parseInt(rowsInput.value);
+  const cols = parseInt(colsInput.value);
+  const imgUrl = imgUrlInput.value.trim();
+
+  if (rows < 2 || cols < 2) {
+    alert('行数和列数必须大于等于2');
+    return;
+  }
+  if (!imgUrl) {
+    alert('请输入图片URL');
+    return;
+  }
+
+  // 计算游戏区域宽高，保持正方形，最大500px，最小300px，适配屏幕宽度
+  const maxSize = 500;
+  const minSize = 300;
+  const vw = window.innerWidth;
+  let size = Math.min(maxSize, vw * 0.9);
+  size = Math.max(minSize, size);
+
+  // 清空旧游戏
+  if (game && game.timer) {
+    clearInterval(game.timer);
+  }
+
+  game = new Game({
+    width: size,
+    height: size,
+    rows,
+    cols,
+    imgUrl,
+    dom: gameContainer,
+  });
+});
+</script>
+</body>
+</html>

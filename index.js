@@ -1,8 +1,8 @@
 const game = new Game({
     width: 800,
     height: 500,
-    rows: 8,
-    cols: 5,
+    rows: 5,
+    cols: 8,
     imgUrl: 'img/gt.jpg',
     dom: document.getElementById('game'),
 });
